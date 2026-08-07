@@ -1,0 +1,32 @@
+services:
+  backend:
+    build: ./backend
+    container_name: task-optimizer-backend
+    environment:
+      DATABASE_PATH: /data/tasks.db
+    volumes:
+      # Named volume holding the SQLite file — data survives restarts, rebuilds
+      # and redeploys. Back the app up by backing up this volume.
+      - task-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    container_name: task-optimizer-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  task-data:

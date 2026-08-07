@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python --version)",
+      "PowerShell(docker --version)",
+      "PowerShell(node --version)",
+      "PowerShell(Select-String -Path \"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\reactflow\\\\dist\\\\style.css\" -Pattern \"z-index\" -Context 1,0 | Select-Object -First 30 | ForEach-Object { $_.Context.PreContext[0] + \" \" + $_.Line })",
+      "PowerShell(Select-String -Path \"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\reactflow\\\\dist\\\\style.css\" -Pattern \"connecting|valid|selected\" | ForEach-Object { $_.Line.Trim\\(\\) } | Select-Object -First 20)",
+      "PowerShell(Select-String -Path \"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\@reactflow\\\\core\\\\dist\\\\esm\\\\index.js\" -Pattern \"connectionindicator|connectingfrom|connectingto|valid\" | ForEach-Object { $_.Line.Trim\\(\\).Substring\\(0, [Math]::Min\\(160, $_.Line.Trim\\(\\).Length\\)\\) } | Select-Object -First 8)",
+      "PowerShell(Select-String -Path \"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\reactflow\\\\dist\\\\esm\\\\index.d.ts\",\"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\@reactflow\\\\core\\\\dist\\\\esm\\\\index.d.ts\" -Pattern \"screenToFlowPosition|zoomOnPinch|getViewport|setViewport\" | ForEach-Object { $_.Line.Trim\\(\\) } | Select-Object -Unique -First 10)",
+      "PowerShell(Get-Content \"d:\\\\Tasks and Stuff\\\\frontend\\\\node_modules\\\\@reactflow\\\\core\\\\dist\\\\esm\\\\types\\\\general.d.ts\" | Select-String -Pattern \"screenToFlowPosition|flowToScreenPosition|getViewport|setViewport|project\" -Context 0,1 | ForEach-Object { $_.Line.Trim\\(\\) })",
+      "PowerShell(Set-Location \"d:\\\\Tasks and Stuff\\\\backend\"; & \"$env:TEMP\\\\to-venv\\\\Scripts\\\\python.exe\" -m pytest tests -q 2>&1 | Select-Object -Last 25)"
+    ]
+  }
+}

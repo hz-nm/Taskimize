@@ -1,0 +1,41 @@
+// Thin fetch wrapper. `/api` is proxied to the FastAPI service by Vite in dev
+// and by nginx in the production image.
+const BASE = import.meta.env.VITE_API_BASE || '/api'
+
+async function request(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail)
+  }
+
+  return res.status === 204 ? null : res.json()
+}
+
+export const api = {
+  listTasks: () => request('/tasks'),
+  createTask: (task) => request('/tasks', { method: 'POST', body: JSON.stringify(task) }),
+  updateTask: (id, patch) => request(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteTask: (id) => request(`/tasks/${id}`, { method: 'DELETE' }),
+
+  listEdges: () => request('/edges'),
+  createEdge: (edge) => request('/edges', { method: 'POST', body: JSON.stringify(edge) }),
+  deleteEdge: (id) => request(`/edges/${id}`, { method: 'DELETE' }),
+
+  listProjects: () => request('/projects'),
+  createProject: (project) => request('/projects', { method: 'POST', body: JSON.stringify(project) }),
+  updateProject: (id, patch) => request(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  addToProject: (id, taskIds) =>
+    request(`/projects/${id}/tasks`, { method: 'POST', body: JSON.stringify({ task_ids: taskIds }) }),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+}

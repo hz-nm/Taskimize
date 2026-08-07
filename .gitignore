@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+node_modules/
+dist/
+.vite/
+
+# Local (non-Docker) SQLite data
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+.DS_Store
+.env
