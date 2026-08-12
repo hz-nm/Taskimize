@@ -12,7 +12,6 @@ import ReactFlow, {
 import { api } from './api'
 import { useTheme } from './theme'
 import { useCanvasGestures } from './useCanvasGestures'
-import { layoutGraph } from './layout'
 import Sidebar from './components/Sidebar'
 import TaskNode from './components/TaskNode'
 import TaskPanel from './components/TaskPanel'
@@ -39,6 +38,30 @@ const MAX_ZOOM = 2.5
 const NODE_W = 218
 const NODE_H = 92
 
+// Fields whose change can reorder `suggested_priority_rank` or flip a blocked
+// flag — anywhere on the board, not just on the task being edited. Everything
+// else a PATCH can touch is local to that one task, so its response is the whole
+// truth and there is nothing to refetch.
+const RANKING_FIELDS = ['status', 'priority_override']
+
+/**
+ * Fold a fresh server list into the one we hold, keeping the previous object for
+ * any task that came back unchanged.
+ *
+ * Node `data` is keyed on task identity, which is what lets `memo` skip cards a
+ * refresh didn't actually touch — so identity has to survive a refetch, or the
+ * memo compares two structurally identical objects and re-renders all of them.
+ */
+function mergeTasks(previous, incoming) {
+  const byId = new Map(previous.map((t) => [t.id, t]))
+  return incoming.map((task) => {
+    const prior = byId.get(task.id)
+    return prior && JSON.stringify(prior) === JSON.stringify(task) ? prior : task
+  })
+}
+
+const ALL = { tasks: true, edges: true, projects: true }
+
 function Board() {
   const [tasks, setTasks] = useState([])
   const [links, setLinks] = useState([])
@@ -55,7 +78,10 @@ function Board() {
 
   const { theme, toggle: toggleTheme } = useTheme()
   const { setCenter, getNode, fitView, screenToFlowPosition } = useReactFlow()
-  const saveTimers = useRef(new Map())
+  // Positions move far more often than they need saving, so they collect here
+  // and go out as one request when the dragging stops.
+  const pendingPositions = useRef(new Map())
+  const positionTimer = useRef(null)
 
   const canvasRef = useRef(null)
   // Last pointer position over the canvas, in screen coordinates. Typing in the
@@ -67,42 +93,58 @@ function Board() {
 
   const report = useCallback((err) => setError(err?.message || String(err)), [])
 
-  const refresh = useCallback(async () => {
-    try {
-      const [nextTasks, nextLinks, nextProjects] = await Promise.all([
-        api.listTasks(),
-        api.listEdges(),
-        api.listProjects(),
-      ])
-      setTasks(nextTasks)
-      setLinks(nextLinks)
-      setProjects(nextProjects)
-      setError(null)
-    } catch (err) {
-      report(err)
-    } finally {
-      setLoading(false)
-    }
-  }, [report])
+  /**
+   * Refetch only the collections the last action could have invalidated.
+   *
+   * The three lists are independent: renaming a project can't move a rank, and
+   * editing a description can't change who is blocked. Pulling all three on
+   * every edit was most of the cost of typing.
+   */
+  const refresh = useCallback(
+    async (parts = ALL) => {
+      try {
+        const [nextTasks, nextLinks, nextProjects] = await Promise.all([
+          parts.tasks ? api.listTasks() : null,
+          parts.edges ? api.listEdges() : null,
+          parts.projects ? api.listProjects() : null,
+        ])
+        if (nextTasks) setTasks((prev) => mergeTasks(prev, nextTasks))
+        if (nextLinks) setLinks(nextLinks)
+        if (nextProjects) setProjects(nextProjects)
+        setError(null)
+      } catch (err) {
+        report(err)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [report],
+  )
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
-  // Flush any pending position saves if the tab goes away mid-debounce.
-  useEffect(() => {
-    const timers = saveTimers.current
-    return () => timers.forEach((timer) => clearTimeout(timer))
-  }, [])
+  // Drop any pending position save if the tab goes away mid-debounce.
+  useEffect(() => () => clearTimeout(positionTimer.current), [])
 
   // Rebuild canvas nodes whenever task data changes. Dragging and marquee
   // selection only mutate React Flow's own node state, so both are carried over
   // rather than recomputed — otherwise a background refresh would drop them.
+  //
+  // Nodes whose task and focus are both unchanged are handed back *as the same
+  // object*. TaskNode is memoised, and a fresh `data` on every rebuild defeated
+  // that entirely: selecting a card used to re-render all of them.
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((n) => [n.id, n]))
-      return tasks.map((task) => {
+      let changed = current.length !== tasks.length
+      const next = tasks.map((task) => {
         const prior = previous.get(task.id)
+        if (prior && prior.data.task === task && prior.data.focused === (task.id === selectedId)) {
+          return prior
+        }
+        changed = true
         return {
           id: task.id,
           type: 'task',
@@ -111,6 +153,7 @@ function Board() {
           data: { task, focused: task.id === selectedId },
         }
       })
+      return changed ? next : current
     })
   }, [tasks, selectedId])
 
@@ -131,31 +174,66 @@ function Board() {
     }))
   }, [links, theme])
 
-  const savePosition = useCallback(
-    (id, position) => {
-      const timers = saveTimers.current
-      clearTimeout(timers.get(id))
-      timers.set(
-        id,
-        setTimeout(async () => {
-          timers.delete(id)
-          try {
-            await api.updateTask(id, { position_x: position.x, position_y: position.y })
-            setTasks((prev) =>
-              prev.map((t) => (t.id === id ? { ...t, position_x: position.x, position_y: position.y } : t)),
-            )
-          } catch (err) {
-            report(err)
-          }
-        }, 400),
-      )
+  /** Persist a batch of positions and mirror them into local state. */
+  const savePositions = useCallback(async (positions) => {
+    await api.saveTaskPositions(
+      positions.map(({ id, position }) => ({ id, position_x: position.x, position_y: position.y })),
+    )
+    const map = new Map(positions.map((p) => [p.id, p.position]))
+    setNodes((current) =>
+      current.map((n) => (map.has(n.id) ? { ...n, position: map.get(n.id) } : n)),
+    )
+    setTasks((current) =>
+      current.map((t) =>
+        map.has(t.id) ? { ...t, position_x: map.get(t.id).x, position_y: map.get(t.id).y } : t,
+      ),
+    )
+  }, [])
+
+  const flushPositions = useCallback(async () => {
+    positionTimer.current = null
+    const pending = [...pendingPositions.current.entries()].map(([id, position]) => ({ id, position }))
+    pendingPositions.current.clear()
+    if (pending.length === 0) return
+    try {
+      await savePositions(pending)
+    } catch (err) {
+      report(err)
+    }
+  }, [savePositions, report])
+
+  // Dragging a selection moves every node in it; one debounce over the whole
+  // group means one request, not one per node.
+  const queuePositions = useCallback(
+    (moved) => {
+      moved.forEach(({ id, position }) => pendingPositions.current.set(id, { ...position }))
+      clearTimeout(positionTimer.current)
+      positionTimer.current = setTimeout(flushPositions, 400)
     },
-    [report],
+    [flushPositions],
   )
 
   const onNodesChange = useCallback((changes) => setNodes((current) => applyNodeChanges(changes, current)), [])
 
-  const onNodeDragStop = useCallback((_event, node) => savePosition(node.id, node.position), [savePosition])
+  // Read through a ref so drag handlers always see the latest positions rather
+  // than whatever was current when the callback was created.
+  const nodesRef = useRef(nodes)
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+
+  const onNodeDragStop = useCallback(
+    (_event, node) => {
+      // React Flow drags every selected node together but only reports the one
+      // under the cursor — so save the whole group, or the rest snap back on
+      // the next refresh.
+      const current = nodesRef.current
+      const dragged = current.find((n) => n.id === node.id)
+      const moved = dragged?.selected ? current.filter((n) => n.selected) : [node]
+      queuePositions(moved.map((n) => ({ id: n.id, position: n.position })))
+    },
+    [queuePositions],
+  )
 
   /**
    * Where a newly added task should land: centred on the cursor's last canvas
@@ -188,7 +266,8 @@ function Board() {
         const created = await api.createTask({ title, position_x: position.x, position_y: position.y })
         setTasks((prev) => [...prev, created])
         setSelectedId(created.id)
-        await refresh()
+        // A new task takes a slot in the ordering, nudging everyone below it.
+        await refresh({ tasks: true })
       } catch (err) {
         report(err)
       }
@@ -198,11 +277,20 @@ function Board() {
 
   const patchTask = useCallback(
     async (id, patch) => {
-      // Optimistic so typing in the panel stays responsive; refresh reconciles ranks.
+      // Optimistic so typing in the panel stays responsive.
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+
+      const reranks = RANKING_FIELDS.some((field) => field in patch)
+      const regroups = 'project_id' in patch
       try {
-        await api.updateTask(id, patch)
-        await refresh()
+        const updated = await api.updateTask(id, patch)
+        if (reranks || regroups) {
+          // Board-wide effects: ranks shift, or a project gains and loses a member.
+          await refresh({ tasks: true, projects: regroups })
+        } else {
+          // A title or a note. The PATCH response already is the new task.
+          setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)))
+        }
       } catch (err) {
         report(err)
         await refresh()
@@ -264,54 +352,13 @@ function Board() {
     async (id) => {
       try {
         await api.deleteEdge(id)
-        await refresh()
+        await refresh({ tasks: true, edges: true })
       } catch (err) {
         report(err)
       }
     },
     [refresh, report],
   )
-
-  /** Persist a batch of positions and mirror them into local state. */
-  const savePositions = useCallback(
-    async (positions) => {
-      await Promise.all(
-        positions.map(({ id, position }) =>
-          api.updateTask(id, { position_x: position.x, position_y: position.y }),
-        ),
-      )
-      const map = new Map(positions.map((p) => [p.id, p.position]))
-      setNodes((current) =>
-        current.map((n) => (map.has(n.id) ? { ...n, position: map.get(n.id) } : n)),
-      )
-      setTasks((current) =>
-        current.map((t) =>
-          map.has(t.id) ? { ...t, position_x: map.get(t.id).x, position_y: map.get(t.id).y } : t,
-        ),
-      )
-    },
-    [],
-  )
-
-  /** Arrange the board along the flow of work, with one-click undo. */
-  const tidyLayout = useCallback(async () => {
-    if (tasks.length === 0) return
-    const before = tasks.map((t) => ({ id: t.id, position: { x: t.position_x, y: t.position_y } }))
-
-    try {
-      await savePositions(layoutGraph(tasks, links, projects))
-      window.requestAnimationFrame(() => fitView({ padding: 0.2, duration: 500, maxZoom: 1 }))
-      setUndoAction({
-        label: 'Board tidied',
-        run: async () => {
-          await savePositions(before)
-          window.requestAnimationFrame(() => fitView({ padding: 0.2, duration: 400, maxZoom: 1 }))
-        },
-      })
-    } catch (err) {
-      report(err)
-    }
-  }, [tasks, links, projects, savePositions, fitView, report])
 
   const runUndo = useCallback(async () => {
     const action = undoAction
@@ -327,6 +374,54 @@ function Board() {
 
   // --- projects -----------------------------------------------------------
 
+  // Positions of a project's members when a hull drag began, so every move is
+  // computed from the start point rather than accumulating rounding drift.
+  const projectDragRef = useRef(null)
+
+  const beginProjectDrag = useCallback(
+    (projectId) => {
+      const memberIds = new Set(tasks.filter((t) => t.project_id === projectId).map((t) => t.id))
+      projectDragRef.current = new Map(
+        nodesRef.current.filter((n) => memberIds.has(n.id)).map((n) => [n.id, { ...n.position }]),
+      )
+      // Select the members too, so the move reads as "this whole group".
+      setNodes((current) => current.map((n) => ({ ...n, selected: memberIds.has(n.id) })))
+      setSelectedNodeIds([...memberIds])
+    },
+    [tasks],
+  )
+
+  const dragProjectBy = useCallback((dx, dy) => {
+    const start = projectDragRef.current
+    if (!start) return
+    setNodes((current) =>
+      current.map((n) => {
+        const origin = start.get(n.id)
+        return origin ? { ...n, position: { x: origin.x + dx, y: origin.y + dy } } : n
+      }),
+    )
+  }, [])
+
+  const endProjectDrag = useCallback(async () => {
+    const start = projectDragRef.current
+    projectDragRef.current = null
+    if (!start) return
+
+    const moved = nodesRef.current.filter((n) => start.has(n.id))
+    // Skip the round-trip on a click that didn't actually move anything.
+    const shifted = moved.filter((n) => {
+      const origin = start.get(n.id)
+      return Math.abs(origin.x - n.position.x) > 0.5 || Math.abs(origin.y - n.position.y) > 0.5
+    })
+    if (shifted.length === 0) return
+
+    try {
+      await savePositions(moved.map((n) => ({ id: n.id, position: n.position })))
+    } catch (err) {
+      report(err)
+    }
+  }, [savePositions, report])
+
   const clearSelection = useCallback(() => {
     setNodes((current) => current.map((n) => (n.selected ? { ...n, selected: false } : n)))
     setSelectedNodeIds([])
@@ -337,7 +432,7 @@ function Board() {
       try {
         await api.createProject({ name, task_ids: selectedNodeIds })
         clearSelection()
-        await refresh()
+        await refresh({ tasks: true, projects: true })
       } catch (err) {
         report(err)
       }
@@ -350,7 +445,7 @@ function Board() {
       try {
         await api.addToProject(projectId, selectedNodeIds)
         clearSelection()
-        await refresh()
+        await refresh({ tasks: true, projects: true })
       } catch (err) {
         report(err)
       }
@@ -362,7 +457,7 @@ function Board() {
     async (id, name) => {
       try {
         await api.updateProject(id, { name })
-        await refresh()
+        await refresh({ projects: true })
       } catch (err) {
         report(err)
       }
@@ -374,7 +469,8 @@ function Board() {
     async (id) => {
       try {
         await api.deleteProject(id)
-        await refresh()
+        // Members survive the project, but come back without a project_id.
+        await refresh({ tasks: true, projects: true })
       } catch (err) {
         report(err)
       }
@@ -399,7 +495,7 @@ function Board() {
           target_task_id: connection.target,
           edge_type: edgeType,
         })
-        await refresh()
+        await refresh({ tasks: true, edges: true })
       } catch (err) {
         report(err)
       }
@@ -416,7 +512,11 @@ function Board() {
     [getNode, setCenter],
   )
 
-  /** Frame a whole project and mark its members as the active selection. */
+  /**
+   * Frame a project and select its members. Selecting is what makes the group
+   * movable: React Flow drags every selected node together, so dragging any one
+   * member now carries the whole project with it.
+   */
   const focusProject = useCallback(
     (projectId) => {
       const memberIds = tasks.filter((t) => t.project_id === projectId).map((t) => t.id)
@@ -496,25 +596,15 @@ function Board() {
         >
           <Background gap={24} size={1} color={ARROW_COLORS[theme].grid} />
           <Controls showInteractive={false} position="bottom-right" />
-          <ProjectLayer projects={projects} tasks={tasks} selectedProjectId={selectedTask?.project_id} />
+          <ProjectLayer
+            projects={projects}
+            tasks={tasks}
+            selectedProjectId={selectedTask?.project_id}
+            onDragStart={beginProjectDrag}
+            onDrag={dragProjectBy}
+            onDragEnd={endProjectDrag}
+          />
         </ReactFlow>
-
-        <div className="canvas-toolbar">
-          <button
-            type="button"
-            className="canvas-toolbar__button"
-            onClick={tidyLayout}
-            disabled={tasks.length === 0}
-            title="Arrange the board along the flow of work"
-          >
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"
-                 strokeLinecap="round" aria-hidden="true">
-              <path d="M4 6h6M4 12h10M4 18h7" />
-              <path d="M17 9l3 3-3 3" />
-            </svg>
-            Tidy
-          </button>
-        </div>
 
         <div className="legend">
           <span><i className="swatch swatch--next" /> next step</span>

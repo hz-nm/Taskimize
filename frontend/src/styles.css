@@ -615,38 +615,6 @@ input, select, textarea { font: inherit; color: inherit; }
   stroke-dasharray: 6 5;
 }
 
-.canvas-toolbar {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  gap: 6px;
-  z-index: 10;
-}
-
-.canvas-toolbar__button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 500;
-  box-shadow: var(--shadow-sm);
-  transition: color 0.14s, border-color 0.14s, background 0.14s;
-}
-
-.canvas-toolbar__button:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-}
-
-.canvas-toolbar__button:disabled { opacity: 0.45; cursor: not-allowed; }
-
 /* Undo bar. Sits above the legend, below the selection bar's slot. */
 .undo-toast {
   position: fixed;
@@ -745,12 +713,27 @@ input, select, textarea { font: inherit; color: inherit; }
 .hull--violet { --hue: #8b5cf6; }
 .hull--lime { --hue: #629c1e; }
 
+/* Hull bodies: behind the nodes, never interactive. */
 .project-layer {
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
   pointer-events: none;
   z-index: 0;
+}
+
+/*
+ * Label chips live in their own layer above React Flow's renderer (z-index 4),
+ * because the pane that captures marquee drags sits above anything painted
+ * behind the nodes — a handle down there would never receive a pointer event.
+ * The container stays click-through so only the chips themselves are grabbable.
+ */
+.project-labels {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .hull {
@@ -766,18 +749,34 @@ input, select, textarea { font: inherit; color: inherit; }
   border-style: solid;
 }
 
+/* The one interactive part of a hull: a grab handle for the whole group. */
 .hull__label {
   position: absolute;
-  top: 6px;
-  left: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  padding: 3px 9px 3px 6px;
+  border-radius: 7px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--hue) 78%, var(--text));
+  background: color-mix(in srgb, var(--hue) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--hue) 30%, transparent);
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none; /* let the pointer handlers own the gesture */
+  transition: background 0.14s, border-color 0.14s;
 }
+
+.hull__label:hover {
+  background: color-mix(in srgb, var(--hue) 20%, var(--surface));
+  border-color: var(--hue);
+}
+
+.hull__label:active { cursor: grabbing; }
+.hull__label svg { opacity: 0.55; }
 
 .hull__label em {
   font-style: normal;

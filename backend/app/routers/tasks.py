@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Edge, Project, Task
 from ..priority import compute_priorities
-from ..schemas import BlockerRef, TaskCreate, TaskRead, TaskUpdate
+from ..schemas import BlockerRef, TaskCreate, TaskPositions, TaskRead, TaskUpdate
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -93,6 +93,29 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskRead:
     db.commit()
     db.refresh(task)
     return _serialize(task, _graph(db))
+
+
+# Declared ahead of the `/{task_id}` routes so the literal path always wins.
+@router.post("/positions", status_code=status.HTTP_204_NO_CONTENT)
+def save_positions(payload: TaskPositions, db: Session = Depends(get_db)) -> Response:
+    """Move a batch of tasks in one round trip.
+
+    Positions are pure layout — they feed nothing in the priority computation —
+    so this returns no body and the client keeps the coordinates it already has.
+    """
+    wanted = {p.id: p for p in payload.positions}
+    found = {t.id: t for t in db.scalars(select(Task).where(Task.id.in_(wanted)))}
+
+    missing = [task_id for task_id in wanted if task_id not in found]
+    if missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown task ids: {', '.join(missing)}")
+
+    for task_id, position in wanted.items():
+        found[task_id].position_x = position.position_x
+        found[task_id].position_y = position.position_y
+
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{task_id}", response_model=TaskRead)

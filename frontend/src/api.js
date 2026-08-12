@@ -27,6 +27,9 @@ export const api = {
   createTask: (task) => request('/tasks', { method: 'POST', body: JSON.stringify(task) }),
   updateTask: (id, patch) => request(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteTask: (id) => request(`/tasks/${id}`, { method: 'DELETE' }),
+  // One request for a whole drag, however many nodes moved.
+  saveTaskPositions: (positions) =>
+    request('/tasks/positions', { method: 'POST', body: JSON.stringify({ positions }) }),
 
   listEdges: () => request('/edges'),
   createEdge: (edge) => request('/edges', { method: 'POST', body: JSON.stringify(edge) }),

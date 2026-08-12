@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { BaseEdge, getSmoothStepPath } from 'reactflow'
 
 /**
@@ -24,7 +25,7 @@ const RAMPS = {
   },
 }
 
-export default function FlowEdge({
+function FlowEdge({
   id,
   sourceX,
   sourceY,
@@ -80,3 +81,8 @@ export default function FlowEdge({
     </>
   )
 }
+
+// Every edge rebuilds its own <defs> gradient, so a re-render is not free. Only
+// the endpoints, type and theme change what's drawn — none of which move when an
+// unrelated node does.
+export default memo(FlowEdge)
