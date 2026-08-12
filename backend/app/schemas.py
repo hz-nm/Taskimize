@@ -109,6 +109,19 @@ class TaskUpdate(BaseModel):
         return v
 
 
+class TaskPosition(BaseModel):
+    id: str
+    position_x: float
+    position_y: float
+
+
+class TaskPositions(BaseModel):
+    """A whole drag's worth of moves. Dragging a project shifts every member, and
+    one request for the group beats one per node."""
+
+    positions: list[TaskPosition] = Field(min_length=1)
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -283,6 +283,36 @@ def test_positions_persist(client):
     assert (stored["position_x"], stored["position_y"]) == (120.5, -40.25)
 
 
+def test_a_batch_of_positions_saves_in_one_request(client):
+    a, b = make_task(client, "a"), make_task(client, "b")
+    r = client.post(
+        "/tasks/positions",
+        json={"positions": [
+            {"id": a["id"], "position_x": 10.0, "position_y": 20.0},
+            {"id": b["id"], "position_x": -5.5, "position_y": 0.0},
+        ]},
+    )
+    assert r.status_code == 204, r.text
+
+    stored = {t["title"]: (t["position_x"], t["position_y"]) for t in client.get("/tasks").json()}
+    assert stored == {"a": (10.0, 20.0), "b": (-5.5, 0.0)}
+
+
+def test_a_batch_with_an_unknown_task_moves_nothing(client):
+    a = make_task(client, "a")
+    r = client.post(
+        "/tasks/positions",
+        json={"positions": [
+            {"id": a["id"], "position_x": 99.0, "position_y": 99.0},
+            {"id": "does-not-exist", "position_x": 1.0, "position_y": 1.0},
+        ]},
+    )
+    assert r.status_code == 404
+
+    stored = client.get(f"/tasks/{a['id']}").json()
+    assert (stored["position_x"], stored["position_y"]) == (0.0, 0.0)
+
+
 def test_project_grouping_from_a_selection(client):
     a, b, loose = make_task(client, "a"), make_task(client, "b"), make_task(client, "loose")
 
