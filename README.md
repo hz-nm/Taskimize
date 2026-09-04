@@ -18,8 +18,8 @@ what to work on next.
 docker compose up --build
 ```
 
-Then open **http://localhost:3000**. The API is on **http://localhost:8000**, with interactive
-docs at **http://localhost:8000/docs**.
+Then open **http://localhost:3000**. The API is on **http://localhost:9000**, with interactive
+docs at **http://localhost:9000/docs**.
 
 To stop: `docker compose down`. Your data stays in the `task-data` volume — only
 `docker compose down -v` erases it.
@@ -45,7 +45,7 @@ DATABASE_PATH=./data/tasks.db uvicorn app.main:app --reload   # PowerShell: $env
 # Terminal 2 — frontend
 cd frontend
 npm install
-VITE_API_TARGET=http://localhost:8000 npm run dev
+VITE_API_TARGET=http://localhost:9000 npm run dev
 ```
 
 ---
@@ -197,7 +197,7 @@ means a loop, which marks everything on that path unworkable.
 
 ## API
 
-Base URL `http://localhost:8000`. Full OpenAPI docs at `/docs`.
+Base URL `http://localhost:9000`. Full OpenAPI docs at `/docs`.
 
 | Method | Path | Notes |
 | --- | --- | --- |
@@ -238,10 +238,10 @@ Each task in a response carries these read-only computed fields alongside its st
 Example:
 
 ```bash
-curl -X POST localhost:8000/tasks -H 'Content-Type: application/json' \
+curl -X POST localhost:9000/tasks -H 'Content-Type: application/json' \
   -d '{"title": "Draft the schema"}'
 
-curl -X POST localhost:8000/edges -H 'Content-Type: application/json' \
+curl -X POST localhost:9000/edges -H 'Content-Type: application/json' \
   -d '{"source_task_id":"<a>","target_task_id":"<b>","edge_type":"blocked_by"}'
 ```
 
@@ -320,7 +320,7 @@ destroying its tasks. They run against a throwaway SQLite file, never your real 
 │   │   └── routers/{tasks,edges,projects}.py
 │   └── tests/test_api.py
 └── frontend/
-    ├── nginx.conf              # serves the SPA, proxies /api -> backend:8000
+    ├── nginx.conf              # serves the SPA, proxies /api -> backend:9000
     └── src/
         ├── App.jsx             # graph state, React Flow wiring, persistence
         ├── api.js              # fetch wrapper
@@ -340,6 +340,6 @@ destroying its tasks. They run against a throwaway SQLite file, never your real 
 
 - The browser only ever talks to one origin: nginx (prod) and Vite (dev) both proxy `/api` to the
   backend, so no API URL is baked into the bundle.
-- Port 8000 is published mainly for `/docs` and scripting; the UI doesn't need it.
+- Port 9000 is published mainly for `/docs` and scripting; the UI doesn't need it.
 - To run on a different port, change the `ports` mapping in `docker-compose.yml` (e.g.
   `"8080:80"` for the frontend).

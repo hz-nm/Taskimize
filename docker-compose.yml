@@ -9,10 +9,10 @@ services:
       # and redeploys. Back the app up by backing up this volume.
       - task-data:/data
     ports:
-      - "8000:8000"
+      - "9000:9000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
       interval: 15s
       timeout: 5s
       retries: 5

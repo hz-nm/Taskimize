@@ -14,7 +14,7 @@ their blockers.
 - **Backend:** Python, FastAPI, SQLite (file-based DB stored in a mounted volume for persistence)
 - **Frontend:** React + React Flow (for the draggable graph canvas)
 - **Containerization:** Docker + docker-compose. Two services: `backend` (FastAPI, serves API on
-  e.g. port 8000) and `frontend` (React app, served via Vite dev server or built static files on
+  e.g. port 9000) and `frontend` (React app, served via Vite dev server or built static files on
   port 3000/80). Mount a volume for the SQLite DB file so data survives container restarts and the
   whole thing can be redeployed anywhere with data intact.
 - No authentication — single user, no login flow needed.

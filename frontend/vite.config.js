@@ -11,7 +11,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_TARGET || 'http://backend:8000',
+        target: process.env.VITE_API_TARGET || 'http://backend:9000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
