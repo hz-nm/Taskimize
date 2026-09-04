@@ -10,15 +10,15 @@ services:
       - task-data-dev:/data
       - ./backend/app:/app/app
     ports:
-      - "8000:8000"
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - "9000:9000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--reload"]
 
   frontend:
     image: node:20-alpine
     container_name: task-optimizer-frontend-dev
     working_dir: /app
     environment:
-      VITE_API_TARGET: http://backend:8000
+      VITE_API_TARGET: http://backend:9000
     volumes:
       - ./frontend:/app
       - /app/node_modules
