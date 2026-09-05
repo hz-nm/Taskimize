@@ -2,6 +2,8 @@ import { memo } from 'react'
 import { Handle, Position } from 'reactflow'
 
 import PriorityBadge from './PriorityBadge'
+import SourceBadge from './SourceBadge'
+import SourceIcon from './SourceIcon'
 
 const STATUS_LABEL = {
   todo: 'To do',
@@ -32,6 +34,12 @@ function TaskNode({ data, selected }) {
         .filter(Boolean)
         .join(' ')}
     >
+      {task.source_count > 0 && (
+        <span className="node__clip" title={`${task.source_count} attached source${task.source_count === 1 ? '' : 's'}`}>
+          <SourceIcon type="attachment" size={11} />
+        </span>
+      )}
+
       <Handle type="target" position={Position.Left} className="node__handle" />
 
       <div className="node__head">
@@ -39,7 +47,10 @@ function TaskNode({ data, selected }) {
           <i className={`dot dot--${blocked ? 'blocked' : task.status}`} aria-hidden="true" />
           {blocked ? 'Blocked' : STATUS_LABEL[task.status]}
         </span>
-        <PriorityBadge task={task} />
+        <span className="node__badges">
+          <SourceBadge task={task} />
+          <PriorityBadge task={task} />
+        </span>
       </div>
 
       <p className="node__title">{task.title}</p>

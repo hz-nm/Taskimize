@@ -13,6 +13,10 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "/data/tasks.db"))
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+# Uploaded source files live alongside the database, on the same persistent volume.
+UPLOAD_DIR = DATABASE_PATH.parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 engine = create_engine(
     f"sqlite:///{DATABASE_PATH}",
     # SQLite + FastAPI's threadpool: sessions may be touched from worker threads.

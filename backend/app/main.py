@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from .database import init_db
-from .routers import edges, projects, tasks
+from .database import UPLOAD_DIR, init_db
+from .routers import edges, projects, sources, tasks
 
 
 @asynccontextmanager
@@ -36,6 +37,11 @@ app.add_middleware(
 app.include_router(tasks.router)
 app.include_router(edges.router)
 app.include_router(projects.router)
+app.include_router(sources.router)
+
+# Uploaded source files, served back under /files (reached via the frontend's
+# existing /api proxy as /api/files/...).
+app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
 
 @app.get("/health", tags=["meta"])

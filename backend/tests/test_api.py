@@ -3,29 +3,6 @@
 Run from ``backend/``:  pytest
 """
 
-import os
-import tempfile
-
-import pytest
-
-# Point the app at a throwaway DB before any app module is imported.
-_tmpdir = tempfile.mkdtemp()
-os.environ["DATABASE_PATH"] = os.path.join(_tmpdir, "test.db")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app.database import Base, engine  # noqa: E402
-from app.main import app  # noqa: E402
-
-
-@pytest.fixture()
-def client():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    with TestClient(app) as c:
-        yield c
-
-
 def make_task(client, title, **kwargs):
     r = client.post("/tasks", json={"title": title, **kwargs})
     assert r.status_code == 201, r.text

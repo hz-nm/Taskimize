@@ -2,12 +2,7 @@
 // and by nginx in the production image.
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
-async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
-
+async function handleResponse(res) {
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -20,6 +15,14 @@ async function request(path, options = {}) {
   }
 
   return res.status === 204 ? null : res.json()
+}
+
+async function request(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  return handleResponse(res)
 }
 
 export const api = {
@@ -41,4 +44,15 @@ export const api = {
   addToProject: (id, taskIds) =>
     request(`/projects/${id}/tasks`, { method: 'POST', body: JSON.stringify({ task_ids: taskIds }) }),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+
+  listSources: (q) => request(`/sources${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  createSource: (source) => request('/sources', { method: 'POST', body: JSON.stringify(source) }),
+  updateSource: (id, patch) => request(`/sources/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteSource: (id) => request(`/sources/${id}`, { method: 'DELETE' }),
+  uploadSource: (formData) => fetch(`${BASE}/sources/upload`, { method: 'POST', body: formData }).then(handleResponse),
+
+  listTaskSources: (taskId) => request(`/tasks/${taskId}/sources`),
+  attachSources: (taskId, sourceIds) =>
+    request(`/tasks/${taskId}/sources`, { method: 'POST', body: JSON.stringify({ source_ids: sourceIds }) }),
+  detachSource: (taskId, sourceId) => request(`/tasks/${taskId}/sources/${sourceId}`, { method: 'DELETE' }),
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import PriorityBadge from './PriorityBadge'
+import SourcesSection from './SourcesSection'
 
 const STATUSES = [
   { value: 'todo', label: 'To do' },
@@ -20,11 +21,17 @@ export default function TaskPanel({
   tasks,
   links,
   projects,
+  taskSources,
+  allSources,
   onChange,
   onDelete,
   onDeleteLink,
   onClose,
   onFocusTask,
+  onAttachSource,
+  onDetachSource,
+  onCreateSource,
+  onUploadSource,
 }) {
   const [draft, setDraft] = useState(task)
   const timer = useRef(null)
@@ -239,6 +246,16 @@ export default function TaskPanel({
             })}
           </ul>
         </div>
+
+        <SourcesSection
+          taskId={task.id}
+          sources={taskSources}
+          allSources={allSources}
+          onAttach={(sourceId) => onAttachSource(task.id, sourceId)}
+          onDetach={(sourceId) => onDetachSource(task.id, sourceId)}
+          onCreate={onCreateSource}
+          onUpload={(file, title) => onUploadSource(task.id, file, title)}
+        />
       </div>
 
       <footer className="panel__footer">

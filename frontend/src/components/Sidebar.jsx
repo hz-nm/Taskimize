@@ -18,6 +18,7 @@ export default function Sidebar({
   onSelectProject,
   onRenameProject,
   onDeleteProject,
+  sourcesByTask,
 }) {
   const [draft, setDraft] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -32,8 +33,14 @@ export default function Sidebar({
       if (statusFilter !== 'all' && task.status !== statusFilter) return false
       if (!needle) return true
       // Search the notes too — often the only place a detail was written down.
-      return ['title', 'description', 'what_i_did', 'what_worked', 'what_didnt'].some((field) =>
+      const inTask = ['title', 'description', 'what_i_did', 'what_worked', 'what_didnt'].some((field) =>
         (task[field] ?? '').toLowerCase().includes(needle),
+      )
+      if (inTask) return true
+      // Also search attached sources, so a forgotten link/note surfaces its task.
+      const sources = sourcesByTask?.get(task.id) ?? []
+      return sources.some((s) =>
+        [s.title, s.url, s.content, s.local_path, s.file_name].some((f) => (f ?? '').toLowerCase().includes(needle)),
       )
     })
     const sorted = [...filtered]
@@ -52,7 +59,7 @@ export default function Sidebar({
     }
 
     return sorted
-  }, [tasks, statusFilter, sortBy, query])
+  }, [tasks, statusFilter, sortBy, query, sourcesByTask])
 
   const submit = (event) => {
     event.preventDefault()

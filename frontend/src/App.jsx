@@ -60,12 +60,14 @@ function mergeTasks(previous, incoming) {
   })
 }
 
-const ALL = { tasks: true, edges: true, projects: true }
+const ALL = { tasks: true, edges: true, projects: true, sources: true }
 
 function Board() {
   const [tasks, setTasks] = useState([])
   const [links, setLinks] = useState([])
   const [projects, setProjects] = useState([])
+  const [sources, setSources] = useState([])
+  const [taskSources, setTaskSources] = useState([])
   const [nodes, setNodes] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [selectedNodeIds, setSelectedNodeIds] = useState([])
@@ -103,14 +105,16 @@ function Board() {
   const refresh = useCallback(
     async (parts = ALL) => {
       try {
-        const [nextTasks, nextLinks, nextProjects] = await Promise.all([
+        const [nextTasks, nextLinks, nextProjects, nextSources] = await Promise.all([
           parts.tasks ? api.listTasks() : null,
           parts.edges ? api.listEdges() : null,
           parts.projects ? api.listProjects() : null,
+          parts.sources ? api.listSources() : null,
         ])
         if (nextTasks) setTasks((prev) => mergeTasks(prev, nextTasks))
         if (nextLinks) setLinks(nextLinks)
         if (nextProjects) setProjects(nextProjects)
+        if (nextSources) setSources(nextSources)
         setError(null)
       } catch (err) {
         report(err)
@@ -124,6 +128,36 @@ function Board() {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  // The panel needs the current task's attached sources; everything else only
+  // needs the flat library (for search and the attach-existing picker).
+  useEffect(() => {
+    if (!selectedId) {
+      setTaskSources([])
+      return
+    }
+    let cancelled = false
+    api
+      .listTaskSources(selectedId)
+      .then((result) => {
+        if (!cancelled) setTaskSources(result)
+      })
+      .catch(report)
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId, report])
+
+  const sourcesByTask = useMemo(() => {
+    const map = new Map()
+    for (const source of sources) {
+      for (const taskId of source.task_ids ?? []) {
+        if (!map.has(taskId)) map.set(taskId, [])
+        map.get(taskId).push(source)
+      }
+    }
+    return map
+  }, [sources])
 
   // Drop any pending position save if the tab goes away mid-debounce.
   useEffect(() => () => clearTimeout(positionTimer.current), [])
@@ -360,6 +394,76 @@ function Board() {
     [refresh, report],
   )
 
+  // --- sources -------------------------------------------------------------
+
+  const refreshTaskSources = useCallback(
+    async (taskId) => {
+      if (taskId !== selectedId) return
+      try {
+        setTaskSources(await api.listTaskSources(taskId))
+      } catch (err) {
+        report(err)
+      }
+    },
+    [selectedId, report],
+  )
+
+  const attachSource = useCallback(
+    async (taskId, sourceId) => {
+      try {
+        await api.attachSources(taskId, [sourceId])
+        await refresh({ tasks: true, sources: true })
+        await refreshTaskSources(taskId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshTaskSources, report],
+  )
+
+  const detachSource = useCallback(
+    async (taskId, sourceId) => {
+      try {
+        await api.detachSource(taskId, sourceId)
+        await refresh({ tasks: true, sources: true })
+        await refreshTaskSources(taskId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshTaskSources, report],
+  )
+
+  const createSource = useCallback(
+    async (payload) => {
+      try {
+        await api.createSource(payload)
+        await refresh({ tasks: true, sources: true })
+        for (const taskId of payload.task_ids ?? []) await refreshTaskSources(taskId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshTaskSources, report],
+  )
+
+  const uploadSource = useCallback(
+    async (taskId, file, title) => {
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        if (title) form.append('title', title)
+        form.append('task_ids', taskId)
+        await api.uploadSource(form)
+        await refresh({ tasks: true, sources: true })
+        await refreshTaskSources(taskId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshTaskSources, report],
+  )
+
   const runUndo = useCallback(async () => {
     const action = undoAction
     setUndoAction(null)
@@ -551,6 +655,7 @@ function Board() {
         onSelectProject={focusProject}
         onRenameProject={renameProject}
         onDeleteProject={removeProject}
+        sourcesByTask={sourcesByTask}
       />
 
       <main
@@ -637,11 +742,17 @@ function Board() {
           tasks={tasks}
           links={selectedLinks}
           projects={projects}
+          taskSources={taskSources}
+          allSources={sources}
           onChange={patchTask}
           onDelete={removeTask}
           onDeleteLink={removeLink}
           onClose={() => setSelectedId(null)}
           onFocusTask={focusTask}
+          onAttachSource={attachSource}
+          onDetachSource={detachSource}
+          onCreateSource={createSource}
+          onUploadSource={uploadSource}
         />
       )}
 

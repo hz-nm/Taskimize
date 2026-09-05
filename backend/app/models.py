@@ -29,6 +29,13 @@ class EdgeType(str, enum.Enum):
     blocked_by = "blocked_by"
 
 
+class SourceType(str, enum.Enum):
+    link = "link"
+    note = "note"
+    file = "file"
+    local_path = "local_path"
+
+
 class Project(Base):
     """A named grouping of tasks, drawn as a hull behind its members on the canvas.
 
@@ -86,6 +93,7 @@ class Task(Base):
         foreign_keys="Edge.target_task_id",
         cascade="all, delete-orphan",
     )
+    source_links: Mapped[list["TaskSource"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
     __table_args__ = (CheckConstraint("priority_override IS NULL OR priority_override >= 1", name="ck_override_positive"),)
 
@@ -110,3 +118,56 @@ class Edge(Base):
         UniqueConstraint("source_task_id", "target_task_id", "edge_type", name="uq_edge_triplet"),
         CheckConstraint("source_task_id != target_task_id", name="ck_no_self_link"),
     )
+
+
+class Source(Base):
+    """A reusable piece of reference material — a link, note, upload, or local
+    file path — that can be attached to any number of tasks via `TaskSource`.
+
+    Deleting a Source detaches it from every task (its TaskSource rows cascade)
+    but a Task being deleted never deletes a Source — the library is shared and
+    outlives any one task.
+    """
+
+    __tablename__ = "sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    type: Mapped[SourceType] = mapped_column(Enum(SourceType, native_enum=False, length=20), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+
+    # Only the field matching `type` is populated. Kept as plain nullable columns
+    # (rather than subtables) since search needs to scan across all of them at once.
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    local_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    task_links: Mapped[list["TaskSource"]] = relationship(back_populates="source", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(
+            "(type != 'link' OR url IS NOT NULL) AND "
+            "(type != 'note' OR content IS NOT NULL) AND "
+            "(type != 'file' OR file_path IS NOT NULL) AND "
+            "(type != 'local_path' OR local_path IS NOT NULL)",
+            name="ck_source_type_fields",
+        ),
+    )
+
+
+class TaskSource(Base):
+    """Many-to-many join between tasks and the shared source library."""
+
+    __tablename__ = "task_sources"
+
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(36), ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+
+    task: Mapped["Task"] = relationship(back_populates="source_links")
+    source: Mapped["Source"] = relationship(back_populates="task_links")
