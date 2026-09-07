@@ -17,7 +17,8 @@
       "Bash(python -m py_compile app/schemas.py app/routers/tasks.py)",
       "Bash(python -m venv venv)",
       "Bash(./venv/Scripts/python.exe -m pip install -q -r \"d:/Tasks and Stuff/backend/requirements.txt\" pytest httpx)",
-      "Bash(\"C:/Users/AMEERH~1/AppData/Local/Temp/claude/d--Tasks-and-Stuff/7c2a2640-2f9f-4786-8089-ae3b174b5dd4/scratchpad/venv/Scripts/python.exe\" -m pytest tests -q)"
+      "Bash(\"C:/Users/AMEERH~1/AppData/Local/Temp/claude/d--Tasks-and-Stuff/7c2a2640-2f9f-4786-8089-ae3b174b5dd4/scratchpad/venv/Scripts/python.exe\" -m pytest tests -q)",
+      "Bash(docker compose *)"
     ]
   }
 }

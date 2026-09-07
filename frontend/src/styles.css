@@ -33,6 +33,12 @@
   --pin-text: #a4620f;
   --pin-border: #f3e0c6;
 
+  --source-bg: #e9f6f4;
+  --source-text: #0f766e;
+  --source-border: #cdece7;
+  --source-solid-bg: #0f766e;
+  --source-solid-text: #ffffff;
+
   --danger: #b3403f;
   --danger-bg: #fdf4f4;
   --danger-border: #f2dbdb;
@@ -92,6 +98,12 @@
   --pin-bg: #3a2c1a;
   --pin-text: #e8b877;
   --pin-border: #513d24;
+
+  --source-bg: #1b3634;
+  --source-text: #5eead4;
+  --source-border: #295450;
+  --source-solid-bg: #5eead4;
+  --source-solid-text: #0b2b28;
 
   --danger: #ef9a98;
   --danger-bg: #332223;
@@ -358,6 +370,7 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .badge--suggested { background: var(--surface-2); color: var(--text-soft); border: 1px solid var(--border); }
 .badge--pinned { background: var(--pin-bg); color: var(--pin-text); border: 1px solid var(--pin-border); }
+.badge--source { background: var(--source-solid-bg); color: var(--source-solid-text); border: 1px solid var(--source-solid-bg); font-weight: 650; }
 .badge--sm { font-size: 10.5px; padding: 0 5px; }
 .badge__label { font-weight: 500; opacity: 0.8; }
 
@@ -377,6 +390,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .react-flow__attribution { display: none; }
 
 .node {
+  position: relative;
   width: 218px;
   padding: 11px 13px 12px;
   border-radius: var(--radius-lg);
@@ -387,6 +401,24 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 
 .node:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+
+/* Corner ribbon for attached sources — the email-attachment paperclip
+   convention, so it reads on sight without needing to be decoded like a badge. */
+.node__clip {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--source-solid-bg);
+  color: var(--source-solid-text);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-sm);
+  z-index: 1;
+}
 
 /*
  * Status is carried by a soft top-down gradient across the whole card, so state
@@ -520,6 +552,13 @@ input, select, textarea { font: inherit; color: inherit; }
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.node__badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .node__status {
@@ -1240,6 +1279,145 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 
 .prompt__cancel:hover { background: var(--surface-hover); color: var(--text-soft); }
+
+/* ----------------------------------------------------------------- sources */
+
+.source-list__item {
+  align-items: flex-start;
+}
+
+.source-list__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--source-text);
+}
+
+.source-list__body { flex: 1; min-width: 0; }
+
+.source-list__title {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-list__content {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--text-soft);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.source-list__path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.source-list__path code {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.source-add__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.source-add__actions button {
+  flex: 1;
+}
+
+.button--sm {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.button--sm:hover { background: var(--surface-hover); color: var(--text); }
+.button--sm.button--primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.button--sm.button--primary:hover { opacity: 0.92; }
+.button--sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.source-picker {
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.source-picker__search input {
+  flex: 1;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.source-picker__results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.source-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.source-picker__row:hover { background: var(--surface-hover); }
+.source-picker__row-body { flex: 1; min-width: 0; }
+.source-picker__row-title { font-size: 12.5px; }
+.source-picker__row-preview {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-picker__empty { padding: 16px 8px; text-align: center; color: var(--text-faint); font-size: 12px; }
 
 /* ------------------------------------------------------------------ toast */
 
