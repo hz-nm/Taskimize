@@ -15,6 +15,7 @@ import { useCanvasGestures } from './useCanvasGestures'
 import Sidebar from './components/Sidebar'
 import TaskNode from './components/TaskNode'
 import TaskPanel from './components/TaskPanel'
+import ProjectPanel from './components/ProjectPanel'
 import LinkTypePrompt from './components/LinkTypePrompt'
 import FlowEdge from './components/FlowEdge'
 import ProjectLayer from './components/ProjectLayer'
@@ -68,6 +69,8 @@ function Board() {
   const [projects, setProjects] = useState([])
   const [sources, setSources] = useState([])
   const [taskSources, setTaskSources] = useState([])
+  const [openProjectId, setOpenProjectId] = useState(null)
+  const [projectSources, setProjectSources] = useState([])
   const [nodes, setNodes] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [selectedNodeIds, setSelectedNodeIds] = useState([])
@@ -148,6 +151,24 @@ function Board() {
     }
   }, [selectedId, report])
 
+  // Same idea, for whichever project's panel is currently open.
+  useEffect(() => {
+    if (!openProjectId) {
+      setProjectSources([])
+      return
+    }
+    let cancelled = false
+    api
+      .listProjectSources(openProjectId)
+      .then((result) => {
+        if (!cancelled) setProjectSources(result)
+      })
+      .catch(report)
+    return () => {
+      cancelled = true
+    }
+  }, [openProjectId, report])
+
   const sourcesByTask = useMemo(() => {
     const map = new Map()
     for (const source of sources) {
@@ -158,6 +179,21 @@ function Board() {
     }
     return map
   }, [sources])
+
+  // A hidden project takes its tasks off the board and out of the sidebar with
+  // it — hiding is a pure visibility flag, so nothing here touches task status
+  // or even leaves the full `tasks` list; it's just what gets rendered/listed.
+  const hiddenProjectIds = useMemo(
+    () => new Set(projects.filter((p) => p.hidden).map((p) => p.id)),
+    [projects],
+  )
+  const visibleTasks = useMemo(
+    () => tasks.filter((t) => !t.project_id || !hiddenProjectIds.has(t.project_id)),
+    [tasks, hiddenProjectIds],
+  )
+  // Hidden projects shouldn't be offered as a destination for new/moved tasks —
+  // assigning one would make the task vanish immediately, which reads as a bug.
+  const visibleProjects = useMemo(() => projects.filter((p) => !p.hidden), [projects])
 
   // Drop any pending position save if the tab goes away mid-debounce.
   useEffect(() => () => clearTimeout(positionTimer.current), [])
@@ -172,8 +208,8 @@ function Board() {
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((n) => [n.id, n]))
-      let changed = current.length !== tasks.length
-      const next = tasks.map((task) => {
+      let changed = current.length !== visibleTasks.length
+      const next = visibleTasks.map((task) => {
         const prior = previous.get(task.id)
         if (prior && prior.data.task === task && prior.data.focused === (task.id === selectedId)) {
           return prior
@@ -189,7 +225,7 @@ function Board() {
       })
       return changed ? next : current
     })
-  }, [tasks, selectedId])
+  }, [visibleTasks, selectedId])
 
   const flowEdges = useMemo(() => {
     const arrows = ARROW_COLORS[theme] ?? ARROW_COLORS.light
@@ -270,16 +306,24 @@ function Board() {
   )
 
   /**
-   * Where a newly added task should land: centred on the cursor's last canvas
-   * position, falling back to the middle of the current view. If that spot is
-   * already occupied, cascade slightly so rapid entries don't stack into one pile.
+   * The cursor's last canvas position, in flow coordinates — falling back to
+   * the middle of the current view. Typing in the sidebar or clicking a button
+   * necessarily moves the mouse off the canvas, so the *last* place it was over
+   * the canvas is the position the user actually meant.
    */
-  const spawnPosition = useCallback(() => {
+  const pointerFlowPosition = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect()
     const screen = pointerRef.current ??
       (rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : { x: 0, y: 0 })
+    return screenToFlowPosition(screen)
+  }, [screenToFlowPosition])
 
-    const point = screenToFlowPosition(screen)
+  /**
+   * Where a newly added task should land: centred on the cursor. If that spot
+   * is already occupied, cascade slightly so rapid entries don't stack into one pile.
+   */
+  const spawnPosition = useCallback(() => {
+    const point = pointerFlowPosition()
     let x = point.x - NODE_W / 2
     let y = point.y - NODE_H / 2
 
@@ -291,7 +335,7 @@ function Board() {
       y += 28
     }
     return { x, y }
-  }, [tasks, screenToFlowPosition])
+  }, [tasks, pointerFlowPosition])
 
   const addTask = useCallback(
     async (title) => {
@@ -299,6 +343,7 @@ function Board() {
         const position = spawnPosition()
         const created = await api.createTask({ title, position_x: position.x, position_y: position.y })
         setTasks((prev) => [...prev, created])
+        setOpenProjectId(null)
         setSelectedId(created.id)
         // A new task takes a slot in the ordering, nudging everyone below it.
         await refresh({ tasks: true })
@@ -434,17 +479,32 @@ function Board() {
     [refresh, refreshTaskSources, report],
   )
 
-  const createSource = useCallback(
-    async (payload) => {
+  const refreshProjectSources = useCallback(
+    async (projectId) => {
+      if (projectId !== openProjectId) return
       try {
-        await api.createSource(payload)
-        await refresh({ tasks: true, sources: true })
-        for (const taskId of payload.task_ids ?? []) await refreshTaskSources(taskId)
+        setProjectSources(await api.listProjectSources(projectId))
       } catch (err) {
         report(err)
       }
     },
-    [refresh, refreshTaskSources, report],
+    [openProjectId, report],
+  )
+
+  // A new source's task_ids/project_ids decide what it attaches to, so a
+  // single quick-add form (in either panel) can create-and-attach in one call.
+  const createSource = useCallback(
+    async (payload) => {
+      try {
+        await api.createSource(payload)
+        await refresh({ tasks: true, projects: true, sources: true })
+        for (const taskId of payload.task_ids ?? []) await refreshTaskSources(taskId)
+        for (const projectId of payload.project_ids ?? []) await refreshProjectSources(projectId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshTaskSources, refreshProjectSources, report],
   )
 
   const uploadSource = useCallback(
@@ -462,6 +522,49 @@ function Board() {
       }
     },
     [refresh, refreshTaskSources, report],
+  )
+
+  const attachProjectSource = useCallback(
+    async (projectId, sourceId) => {
+      try {
+        await api.attachProjectSources(projectId, [sourceId])
+        await refresh({ projects: true, sources: true })
+        await refreshProjectSources(projectId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshProjectSources, report],
+  )
+
+  const detachProjectSource = useCallback(
+    async (projectId, sourceId) => {
+      try {
+        await api.detachProjectSource(projectId, sourceId)
+        await refresh({ projects: true, sources: true })
+        await refreshProjectSources(projectId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshProjectSources, report],
+  )
+
+  const uploadProjectSource = useCallback(
+    async (projectId, file, title) => {
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        if (title) form.append('title', title)
+        form.append('project_ids', projectId)
+        await api.uploadSource(form)
+        await refresh({ projects: true, sources: true })
+        await refreshProjectSources(projectId)
+      } catch (err) {
+        report(err)
+      }
+    },
+    [refresh, refreshProjectSources, report],
   )
 
   const runUndo = useCallback(async () => {
@@ -575,11 +678,88 @@ function Board() {
         await api.deleteProject(id)
         // Members survive the project, but come back without a project_id.
         await refresh({ tasks: true, projects: true })
+        setOpenProjectId((current) => (current === id ? null : current))
       } catch (err) {
         report(err)
       }
     },
     [refresh, report],
+  )
+
+  // The task panel and the project panel occupy the same slot on the right, so
+  // opening one always closes the other.
+  const openProject = useCallback((id) => {
+    setSelectedId(null)
+    setOpenProjectId(id)
+  }, [])
+
+  const closeProjectPanel = useCallback(() => setOpenProjectId(null), [])
+
+  const hideProject = useCallback(
+    async (id) => {
+      try {
+        await api.updateProject(id, { hidden: true })
+        await refresh({ projects: true })
+        // Its tasks are about to vanish from the board — close anything that
+        // was pointing at one of them, rather than leaving a panel open for a
+        // task (or a selection) that no longer has a node to show for it.
+        setSelectedId((current) => {
+          const task = tasks.find((t) => t.id === current)
+          return task && task.project_id === id ? null : current
+        })
+        setSelectedNodeIds((current) =>
+          current.filter((taskId) => tasks.find((t) => t.id === taskId)?.project_id !== id),
+        )
+        setOpenProjectId((current) => (current === id ? null : current))
+      } catch (err) {
+        report(err)
+      }
+    },
+    [tasks, refresh, report],
+  )
+
+  /**
+   * Bring a hidden project back, its tasks reappearing as one block wherever
+   * the cursor last was over the canvas — the same spawn logic as a new task,
+   * just centering the whole group's bounding box instead of one card, and
+   * shifting every member by the same delta so their layout relative to each
+   * other survives the move untouched.
+   */
+  const unhideProject = useCallback(
+    async (id) => {
+      try {
+        const members = tasks.filter((t) => t.project_id === id)
+        if (members.length > 0) {
+          const minX = Math.min(...members.map((t) => t.position_x))
+          const minY = Math.min(...members.map((t) => t.position_y))
+          const maxX = Math.max(...members.map((t) => t.position_x + NODE_W))
+          const maxY = Math.max(...members.map((t) => t.position_y + NODE_H))
+
+          const point = pointerFlowPosition()
+          let x = point.x - (maxX - minX) / 2
+          let y = point.y - (maxY - minY) / 2
+
+          const taken = (px, py) =>
+            visibleTasks.some((t) => Math.abs(t.position_x - px) < 24 && Math.abs(t.position_y - py) < 24)
+          for (let i = 0; i < 40 && taken(x, y); i += 1) {
+            x += 28
+            y += 28
+          }
+
+          const dx = x - minX
+          const dy = y - minY
+          await savePositions(
+            members.map((t) => ({ id: t.id, position: { x: t.position_x + dx, y: t.position_y + dy } })),
+          )
+        }
+
+        await api.updateProject(id, { hidden: false })
+        await refresh({ tasks: true, projects: true })
+      } catch (err) {
+        report(err)
+      }
+    },
+    [tasks, visibleTasks, pointerFlowPosition, savePositions, refresh, report],
   )
 
   // Drawing an edge asks what kind of link it is before anything is persisted.
@@ -609,6 +789,7 @@ function Board() {
 
   const focusTask = useCallback(
     (id) => {
+      setOpenProjectId(null)
       setSelectedId(id)
       const node = getNode(id)
       if (node) setCenter(node.position.x + 110, node.position.y + 50, { zoom: 1.15, duration: 400 })
@@ -635,6 +816,7 @@ function Board() {
 
   const selectedTask = tasks.find((t) => t.id === selectedId) || null
   const selectedLinks = links.filter((l) => l.source_task_id === selectedId || l.target_task_id === selectedId)
+  const openProjectRecord = projects.find((p) => p.id === openProjectId) || null
 
   const pendingLabels = pendingConnection && {
     source: tasks.find((t) => t.id === pendingConnection.source)?.title,
@@ -644,7 +826,7 @@ function Board() {
   return (
     <div className="app">
       <Sidebar
-        tasks={tasks}
+        tasks={visibleTasks}
         selectedId={selectedId}
         loading={loading}
         theme={theme}
@@ -653,8 +835,11 @@ function Board() {
         onSelect={focusTask}
         projects={projects}
         onSelectProject={focusProject}
+        onOpenProject={openProject}
         onRenameProject={renameProject}
         onDeleteProject={removeProject}
+        onHideProject={hideProject}
+        onUnhideProject={unhideProject}
         sourcesByTask={sourcesByTask}
       />
 
@@ -671,10 +856,14 @@ function Board() {
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onNodeDragStop={onNodeDragStop}
-          onNodeClick={(_e, node) => setSelectedId(node.id)}
+          onNodeClick={(_e, node) => {
+            setOpenProjectId(null)
+            setSelectedId(node.id)
+          }}
           onPaneClick={() => {
             setSelectedId(null)
             setSelectedNodeIds([])
+            setOpenProjectId(null)
           }}
           onSelectionChange={({ nodes: picked }) => setSelectedNodeIds(picked.map((n) => n.id))}
           onConnect={onConnect}
@@ -702,8 +891,8 @@ function Board() {
           <Background gap={24} size={1} color={ARROW_COLORS[theme].grid} />
           <Controls showInteractive={false} position="bottom-right" />
           <ProjectLayer
-            projects={projects}
-            tasks={tasks}
+            projects={visibleProjects}
+            tasks={visibleTasks}
             selectedProjectId={selectedTask?.project_id}
             onDragStart={beginProjectDrag}
             onDrag={dragProjectBy}
@@ -720,7 +909,7 @@ function Board() {
         {selectedNodeIds.length > 1 && (
           <SelectionBar
             count={selectedNodeIds.length}
-            projects={projects}
+            projects={visibleProjects}
             onCreate={groupSelection}
             onAddTo={addSelectionToProject}
             onClear={clearSelection}
@@ -741,7 +930,7 @@ function Board() {
           task={selectedTask}
           tasks={tasks}
           links={selectedLinks}
-          projects={projects}
+          projects={visibleProjects}
           taskSources={taskSources}
           allSources={sources}
           onChange={patchTask}
@@ -753,6 +942,22 @@ function Board() {
           onDetachSource={detachSource}
           onCreateSource={createSource}
           onUploadSource={uploadSource}
+        />
+      )}
+
+      {openProjectRecord && (
+        <ProjectPanel
+          key={openProjectRecord.id}
+          project={openProjectRecord}
+          sources={projectSources}
+          allSources={sources}
+          onClose={closeProjectPanel}
+          onUngroup={removeProject}
+          onHide={hideProject}
+          onAttachSource={attachProjectSource}
+          onDetachSource={detachProjectSource}
+          onCreateSource={createSource}
+          onUploadSource={uploadProjectSource}
         />
       )}
 

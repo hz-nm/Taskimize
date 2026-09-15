@@ -18,8 +18,9 @@ function openSource(source) {
 }
 
 /** Attached-sources list, an "attach existing" picker, and a quick-add form —
- * the task-side half of the shared source library. */
-export default function SourcesSection({ taskId, sources, allSources, onAttach, onDetach, onCreate, onUpload }) {
+ * reused by both the task panel and the project panel, since a source attaches
+ * to either kind of owner via its own independent join table. */
+export default function SourcesSection({ ownerType, ownerId, sources, allSources, onAttach, onDetach, onCreate, onUpload }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -47,7 +48,8 @@ export default function SourcesSection({ taskId, sources, allSources, onAttach, 
       if (type === 'link') fields.url = value.trim()
       if (type === 'note') fields.content = value
       if (type === 'local_path') fields.local_path = value.trim()
-      await onCreate({ type, task_ids: [taskId], ...fields })
+      const idsField = ownerType === 'project' ? 'project_ids' : 'task_ids'
+      await onCreate({ type, [idsField]: [ownerId], ...fields })
       resetAdd()
     } finally {
       setBusy(false)

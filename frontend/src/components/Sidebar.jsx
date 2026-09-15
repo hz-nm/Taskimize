@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import PriorityBadge from './PriorityBadge'
+import SourceIcon from './SourceIcon'
 import ThemeToggle from './ThemeToggle'
 
 const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', done: 'Done' }
@@ -16,8 +17,11 @@ export default function Sidebar({
   onSelect,
   projects,
   onSelectProject,
+  onOpenProject,
   onRenameProject,
   onDeleteProject,
+  onHideProject,
+  onUnhideProject,
   sourcesByTask,
 }) {
   const [draft, setDraft] = useState('')
@@ -70,6 +74,8 @@ export default function Sidebar({
   }
 
   const openCount = tasks.filter((t) => t.status !== 'done').length
+  const activeProjects = projects.filter((p) => !p.hidden)
+  const hiddenProjects = projects.filter((p) => p.hidden)
 
   const commitRename = (event) => {
     event.preventDefault()
@@ -107,11 +113,11 @@ export default function Sidebar({
         </button>
       </form>
 
-      {projects.length > 0 && (
+      {activeProjects.length > 0 && (
         <section className="projects">
           <h2 className="sidebar__section">Projects</h2>
           <ul className="projects__list">
-            {projects.map((project) => (
+            {activeProjects.map((project) => (
               <li key={project.id} className={`projects__item projects__item--${project.color}`}>
                 {renamingId === project.id ? (
                   <form className="projects__rename" onSubmit={commitRename}>
@@ -143,6 +149,29 @@ export default function Sidebar({
                     <button
                       type="button"
                       className="icon-button"
+                      title="Sources & details"
+                      aria-label={`Open ${project.name} details`}
+                      onClick={() => onOpenProject(project.id)}
+                    >
+                      <SourceIcon type="attachment" size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      title="Hide (tasks hide with it, unhide from below)"
+                      aria-label={`Hide ${project.name}`}
+                      onClick={() => onHideProject(project.id)}
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"
+                           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="3" y="4" width="18" height="4" rx="1" />
+                        <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+                        <path d="M10 13h4" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
                       title="Ungroup (tasks are kept)"
                       aria-label={`Ungroup ${project.name}`}
                       onClick={() => onDeleteProject(project.id)}
@@ -155,6 +184,35 @@ export default function Sidebar({
             ))}
           </ul>
         </section>
+      )}
+
+      {hiddenProjects.length > 0 && (
+        <details className="hidden-projects">
+          <summary className="sidebar__section">Hidden / Completed ({hiddenProjects.length})</summary>
+          <ul className="projects__list">
+            {hiddenProjects.map((project) => (
+              <li key={project.id} className={`projects__item projects__item--${project.color}`}>
+                <span className="projects__go">
+                  <i className="projects__swatch" aria-hidden="true" />
+                  <span className="projects__name">{project.name}</span>
+                  <span className="projects__count">{project.task_count}</span>
+                </span>
+                <button type="button" className="button--sm" onClick={() => onUnhideProject(project.id)}>
+                  Unhide
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Ungroup (tasks return, no longer hidden)"
+                  aria-label={`Ungroup ${project.name}`}
+                  onClick={() => onDeleteProject(project.id)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <div className="search">

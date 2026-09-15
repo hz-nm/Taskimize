@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -48,10 +48,15 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     color: Mapped[str] = mapped_column(String(20), nullable=False, default="indigo")
+    # A pure visibility flag — hides the project and its tasks from the board
+    # and sidebar without touching any task's status. Nothing else reacts to it
+    # server-side; the frontend does all the filtering.
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now, onupdate=_now)
 
     tasks: Mapped[list["Task"]] = relationship(back_populates="project")
+    source_links: Mapped[list["ProjectSource"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class Task(Base):
@@ -122,11 +127,12 @@ class Edge(Base):
 
 class Source(Base):
     """A reusable piece of reference material — a link, note, upload, or local
-    file path — that can be attached to any number of tasks via `TaskSource`.
+    file path — that can be attached to any number of tasks via `TaskSource`,
+    and independently to any number of projects via `ProjectSource`.
 
-    Deleting a Source detaches it from every task (its TaskSource rows cascade)
-    but a Task being deleted never deletes a Source — the library is shared and
-    outlives any one task.
+    Deleting a Source detaches it from every task and project it's attached to
+    (those join rows cascade), but neither a Task nor a Project being deleted
+    ever deletes a Source — the library is shared and outlives any one owner.
     """
 
     __tablename__ = "sources"
@@ -148,6 +154,7 @@ class Source(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now, onupdate=_now)
 
     task_links: Mapped[list["TaskSource"]] = relationship(back_populates="source", cascade="all, delete-orphan")
+    project_links: Mapped[list["ProjectSource"]] = relationship(back_populates="source", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint(
@@ -171,3 +178,17 @@ class TaskSource(Base):
 
     task: Mapped["Task"] = relationship(back_populates="source_links")
     source: Mapped["Source"] = relationship(back_populates="task_links")
+
+
+class ProjectSource(Base):
+    """Many-to-many join between projects and the shared source library —
+    project-wide reference material, independent of any one task inside it."""
+
+    __tablename__ = "project_sources"
+
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(36), ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+
+    project: Mapped["Project"] = relationship(back_populates="source_links")
+    source: Mapped["Source"] = relationship(back_populates="project_links")
