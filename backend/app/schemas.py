@@ -30,6 +30,7 @@ class ProjectUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = None
+    hidden: bool | None = None
 
 
 class ProjectMembers(BaseModel):
@@ -42,9 +43,11 @@ class ProjectRead(BaseModel):
     id: str
     name: str
     color: str
+    hidden: bool = False
     created_at: datetime
     updated_at: datetime
     task_count: int = 0
+    source_count: int = 0
 
 
 class BlockerRef(BaseModel):
@@ -183,8 +186,9 @@ class SourceCreate(BaseModel):
     url: str | None = None
     content: str | None = None
     local_path: str | None = None
-    # Optional: attach to these tasks in the same request.
+    # Optional: attach to these tasks/projects in the same request.
     task_ids: list[str] = []
+    project_ids: list[str] = []
 
     @field_validator("title")
     @classmethod
@@ -252,4 +256,8 @@ class SourceRead(BaseModel):
 
 
 class TaskSourceLinks(BaseModel):
+    source_ids: list[str]
+
+
+class ProjectSourceLinks(BaseModel):
     source_ids: list[str]

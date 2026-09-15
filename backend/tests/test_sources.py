@@ -18,6 +18,18 @@ def make_source(client, **kwargs):
     return r.json()
 
 
+def make_project(client, name, **kwargs):
+    r = client.post("/projects", json={"name": name, **kwargs})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def get_project(client, project_id):
+    # There's no single-project GET endpoint — list-and-find matches the
+    # existing project tests in test_api.py.
+    return next(p for p in client.get("/projects").json() if p["id"] == project_id)
+
+
 def test_create_link_note_and_local_path_sources(client):
     link = make_source(client, type="link", title="Docs", url="https://example.com")
     assert link["type"] == "link"
@@ -226,3 +238,109 @@ def test_source_ids_can_be_attached_at_creation(client):
     source = make_source(client, type="link", title="x", url="https://x.example", task_ids=[task["id"]])
     assert source["task_count"] == 1
     assert client.get(f"/tasks/{task['id']}").json()["source_count"] == 1
+
+
+# --------------------------------------------------------------------------
+# Project-attached sources — independent of any task attachment.
+
+
+def test_attach_source_to_a_project(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="link", title="Brand guide", url="https://example.com/brand")
+
+    r = client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+    assert r.status_code == 200, r.text
+    assert r.json()["source_count"] == 1
+
+    attached = client.get(f"/projects/{project['id']}/sources").json()
+    assert [s["title"] for s in attached] == ["Brand guide"]
+
+
+def test_project_and_task_attachments_are_independent(client):
+    project = make_project(client, "Launch")
+    task = make_task(client, "a")
+    source = make_source(client, type="note", title="shared", content="x")
+
+    client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+    client.post(f"/tasks/{task['id']}/sources", json={"source_ids": [source["id"]]})
+
+    assert client.get(f"/sources/{source['id']}").json()["task_count"] == 1
+
+    # Detaching from the task leaves the project attachment untouched.
+    client.delete(f"/tasks/{task['id']}/sources/{source['id']}")
+    assert get_project(client, project['id'])["source_count"] == 1
+    assert client.get(f"/tasks/{task['id']}").json()["source_count"] == 0
+
+
+def test_attaching_the_same_source_to_a_project_twice_is_idempotent(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="note", title="x", content="x")
+
+    client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+    r = client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+    assert r.status_code == 200
+
+    assert len(client.get(f"/projects/{project['id']}/sources").json()) == 1
+
+
+def test_attach_to_project_with_unknown_project_or_source_404s(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="note", title="x", content="x")
+
+    assert client.post("/projects/nope/sources", json={"source_ids": [source["id"]]}).status_code == 404
+
+    r = client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"], "nope"]})
+    assert r.status_code == 404
+    assert client.get(f"/projects/{project['id']}/sources").json() == []
+
+
+def test_detach_unknown_project_source_link_404s(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="note", title="x", content="x")
+    assert client.delete(f"/projects/{project['id']}/sources/{source['id']}").status_code == 404
+
+
+def test_deleting_a_source_detaches_it_from_projects_too(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="note", title="x", content="x")
+    client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+
+    assert client.delete(f"/sources/{source['id']}").status_code == 204
+    assert get_project(client, project['id'])["source_count"] == 0
+
+
+def test_deleting_a_project_detaches_but_keeps_the_source_in_the_library(client):
+    project = make_project(client, "Launch")
+    source = make_source(client, type="note", title="survives", content="x")
+    client.post(f"/projects/{project['id']}/sources", json={"source_ids": [source["id"]]})
+
+    assert client.delete(f"/projects/{project['id']}").status_code == 204
+
+    assert client.get(f"/sources/{source['id']}").status_code == 200
+    assert client.get(f"/sources/{source['id']}").json()["task_count"] == 0
+
+
+def test_source_ids_and_project_ids_can_both_be_attached_at_creation(client):
+    task = make_task(client, "a")
+    project = make_project(client, "Launch")
+    source = make_source(
+        client,
+        type="link",
+        title="x",
+        url="https://x.example",
+        task_ids=[task["id"]],
+        project_ids=[project["id"]],
+    )
+    assert source["task_count"] == 1
+    assert get_project(client, project['id'])["source_count"] == 1
+
+
+def test_upload_can_attach_to_a_project(client):
+    project = make_project(client, "Launch")
+    r = client.post(
+        "/sources/upload",
+        data={"project_ids": project["id"]},
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+    assert r.status_code == 201, r.text
+    assert get_project(client, project['id'])["source_count"] == 1

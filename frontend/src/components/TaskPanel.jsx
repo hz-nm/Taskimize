@@ -248,7 +248,8 @@ export default function TaskPanel({
         </div>
 
         <SourcesSection
-          taskId={task.id}
+          ownerType="task"
+          ownerId={task.id}
           sources={taskSources}
           allSources={allSources}
           onAttach={(sourceId) => onAttachSource(task.id, sourceId)}

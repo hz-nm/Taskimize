@@ -5,22 +5,33 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Project, Task
-from ..schemas import PROJECT_COLORS, ProjectCreate, ProjectMembers, ProjectRead, ProjectUpdate
+from ..models import Project, ProjectSource, Source, Task
+from ..routers.sources import _serialize as _serialize_source
+from ..routers.sources import _task_ids_by_source
+from ..schemas import PROJECT_COLORS, ProjectCreate, ProjectMembers, ProjectRead, ProjectSourceLinks, ProjectUpdate, SourceRead
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 def _serialize(project: Project, db: Session) -> ProjectRead:
     count = len(db.scalars(select(Task.id).where(Task.project_id == project.id)).all())
+    source_count = len(db.scalars(select(ProjectSource.source_id).where(ProjectSource.project_id == project.id)).all())
     return ProjectRead(
         id=project.id,
         name=project.name,
         color=project.color,
+        hidden=project.hidden,
         created_at=project.created_at,
         updated_at=project.updated_at,
         task_count=count,
+        source_count=source_count,
     )
+
+
+def _load_sources(source_ids: list[str], db: Session) -> None:
+    for source_id in source_ids:
+        if db.get(Source, source_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Source {source_id} not found")
 
 
 def _next_color(db: Session) -> str:
@@ -115,6 +126,56 @@ def delete_project(project_id: str, db: Session = Depends(get_db)) -> Response:
     for task in db.scalars(select(Task).where(Task.project_id == project_id)):
         task.project_id = None
 
-    db.delete(project)
+    db.delete(project)  # attached ProjectSource rows cascade; the Sources themselves survive
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{project_id}/sources", response_model=list[SourceRead])
+def list_project_sources(project_id: str, db: Session = Depends(get_db)) -> list[SourceRead]:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    links = list(
+        db.scalars(select(ProjectSource).where(ProjectSource.project_id == project_id).order_by(ProjectSource.created_at))
+    )
+    by_source = _task_ids_by_source(db, [link.source_id for link in links])
+    return [_serialize_source(link.source, by_source.get(link.source_id, [])) for link in links]
+
+
+@router.post("/{project_id}/sources", response_model=ProjectRead)
+def attach_project_sources(project_id: str, payload: ProjectSourceLinks, db: Session = Depends(get_db)) -> ProjectRead:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    _load_sources(payload.source_ids, db)
+
+    existing = set(
+        db.scalars(
+            select(ProjectSource.source_id).where(
+                ProjectSource.project_id == project_id, ProjectSource.source_id.in_(payload.source_ids)
+            )
+        )
+    )
+    for source_id in payload.source_ids:
+        if source_id not in existing:
+            db.add(ProjectSource(project_id=project_id, source_id=source_id))
+
+    db.commit()
+    return _serialize(project, db)
+
+
+@router.delete("/{project_id}/sources/{source_id}", response_model=ProjectRead)
+def detach_project_source(project_id: str, source_id: str, db: Session = Depends(get_db)) -> ProjectRead:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    link = db.get(ProjectSource, {"project_id": project_id, "source_id": source_id})
+    if link is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That source is not attached to this project")
+
+    db.delete(link)
+    db.commit()
+    return _serialize(project, db)

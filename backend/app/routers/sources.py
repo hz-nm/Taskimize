@@ -1,8 +1,10 @@
 """Source library endpoints — a shared pool of reference material (links, notes,
-file uploads, local file paths) that tasks attach to via `TaskSource`.
+file uploads, local file paths) that tasks attach to via `TaskSource`, and that
+projects independently attach to via `ProjectSource`.
 
-Attach/detach live on the `tasks` router instead (`/tasks/{id}/sources`), since
-that's how the UI reaches them — a task's panel manages its own attachments.
+Attach/detach live on the `tasks` and `projects` routers instead
+(`/tasks/{id}/sources`, `/projects/{id}/sources`), since that's how the UI
+reaches them — a task's or project's panel manages its own attachments.
 """
 
 import uuid
@@ -13,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import UPLOAD_DIR, get_db
-from ..models import Source, SourceType, Task, TaskSource
+from ..models import Project, ProjectSource, Source, SourceType, Task, TaskSource
 from ..schemas import SourceCreate, SourceRead, SourceUpdate
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -67,6 +69,26 @@ def _attach(db: Session, source_id: str, task_ids: list[str]) -> None:
             db.add(TaskSource(task_id=task_id, source_id=source_id))
 
 
+def _attach_projects(db: Session, source_id: str, project_ids: list[str]) -> None:
+    """Idempotent bulk attach to projects — the same shape as `_attach` above,
+    for a separate join table since a source's task and project attachments
+    are independent of each other."""
+    for project_id in project_ids:
+        if db.get(Project, project_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Project {project_id} not found")
+
+    existing = set(
+        db.scalars(
+            select(ProjectSource.project_id).where(
+                ProjectSource.source_id == source_id, ProjectSource.project_id.in_(project_ids)
+            )
+        )
+    )
+    for project_id in project_ids:
+        if project_id not in existing:
+            db.add(ProjectSource(project_id=project_id, source_id=source_id))
+
+
 @router.get("", response_model=list[SourceRead])
 def list_sources(q: str | None = None, type: SourceType | None = None, db: Session = Depends(get_db)) -> list[SourceRead]:
     stmt = select(Source).order_by(Source.updated_at.desc())
@@ -100,6 +122,7 @@ def create_source(payload: SourceCreate, db: Session = Depends(get_db)) -> Sourc
     db.flush()  # assign the id before attaching
 
     _attach(db, source.id, payload.task_ids)
+    _attach_projects(db, source.id, payload.project_ids)
 
     db.commit()
     db.refresh(source)
@@ -111,6 +134,7 @@ async def upload_source(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     task_ids: str = Form(default=""),
+    project_ids: str = Form(default=""),
     db: Session = Depends(get_db),
 ) -> SourceRead:
     body = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -124,6 +148,7 @@ async def upload_source(
     (UPLOAD_DIR / on_disk_name).write_bytes(body)
 
     ids = [t.strip() for t in task_ids.split(",") if t.strip()]
+    proj_ids = [p.strip() for p in project_ids.split(",") if p.strip()]
 
     source = Source(
         type=SourceType.file,
@@ -137,6 +162,7 @@ async def upload_source(
 
     try:
         _attach(db, source.id, ids)
+        _attach_projects(db, source.id, proj_ids)
     except HTTPException:
         (UPLOAD_DIR / on_disk_name).unlink(missing_ok=True)
         db.rollback()

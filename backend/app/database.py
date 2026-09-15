@@ -63,6 +63,7 @@ def init_db() -> None:
 _ADDED_COLUMNS = [
     ("tasks", "project_id", "ALTER TABLE tasks ADD COLUMN project_id VARCHAR(36) REFERENCES projects(id)"),
     ("tasks", "description", "ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''"),
+    ("projects", "hidden", "ALTER TABLE projects ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT 0"),
 ]
 
 

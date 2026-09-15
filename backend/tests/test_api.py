@@ -349,6 +349,22 @@ def test_renaming_a_project(client):
     assert (updated["name"], updated["color"]) == ("New", "teal")
 
 
+def test_project_hidden_defaults_to_false_and_can_be_toggled(client):
+    project = client.post("/projects", json={"name": "Old project"}).json()
+    assert project["hidden"] is False
+
+    hidden = client.patch(f"/projects/{project['id']}", json={"hidden": True}).json()
+    assert hidden["hidden"] is True
+
+    # Toggling hidden is a pure visibility flag — it never touches member tasks.
+    task = make_task(client, "a", project_id=project["id"])
+    assert task["status"] == "todo"
+
+    shown = client.patch(f"/projects/{project['id']}", json={"hidden": False}).json()
+    assert shown["hidden"] is False
+    assert client.get(f"/tasks/{task['id']}").json()["status"] == "todo"
+
+
 def test_disconnected_clusters_all_rank(client):
     for name in ("island_a", "island_b", "island_c"):
         make_task(client, name)

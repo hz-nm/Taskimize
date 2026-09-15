@@ -55,4 +55,10 @@ export const api = {
   attachSources: (taskId, sourceIds) =>
     request(`/tasks/${taskId}/sources`, { method: 'POST', body: JSON.stringify({ source_ids: sourceIds }) }),
   detachSource: (taskId, sourceId) => request(`/tasks/${taskId}/sources/${sourceId}`, { method: 'DELETE' }),
+
+  listProjectSources: (projectId) => request(`/projects/${projectId}/sources`),
+  attachProjectSources: (projectId, sourceIds) =>
+    request(`/projects/${projectId}/sources`, { method: 'POST', body: JSON.stringify({ source_ids: sourceIds }) }),
+  detachProjectSource: (projectId, sourceId) =>
+    request(`/projects/${projectId}/sources/${sourceId}`, { method: 'DELETE' }),
 }
